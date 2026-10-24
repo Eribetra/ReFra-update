@@ -1,12 +1,10 @@
-name: Nightly CI
+name: Manual CI
 
 on:
-  push:
-   branches:
-    - nightly
+  workflow_dispatch:
 
 concurrency:
-  group: nightly-${{ github.ref }}
+  group: manual-${{ github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -24,7 +22,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Get versionCode
         id: versioncode
-        run: echo "versionCode=$(grep -E '^\s+versionCode\s*=' app/androidApp/build.gradle.kts | awk '{ print $3 }' | head -n 1)" >> $GITHUB_OUTPUT
+        run: echo "versionCode=$(grep -E '^\s+versionCode\s*=' app/androidApp/build.gradle.kts | awk '{ print $3 }' \vert{} head -n 1)" >> $GITHUB_OUTPUT
       - name: Get versionName
         id: versionname
         run: echo "versionName=$(grep -E '^\s+versionName\s*=' app/androidApp/build.gradle.kts | head -1 | awk -F\" '{ print $2 }')" >> $GITHUB_OUTPUT
@@ -35,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [Arm64-v8a, Armeabi-v7a, X86_64, X86, Universal]
+        arch: [Arm64-v8a]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v4
@@ -53,19 +51,8 @@ jobs:
           echo "org.gradle.workers.max=2" >> gradle.properties
       - name: Enable offline mode
         run: echo "OFFLINE=true" >> ./app.properties
-      - name: Decode Keystore
-        id: decode_keystore
-        uses: timheuer/base64-to-file@v1
-        with:
-          fileName: 'release_key.jks'
-          fileDir: 'app/androidApp/'
-          encodedString: ${{ secrets.SIGNING_KEY }}
       - name: Build Release APK
         run: ./gradlew --build-cache :app:androidApp:assemble${{ matrix.arch }}NoMLRelease
-        env:
-          SIGNING_KEY_ALIAS: ${{ secrets.ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          SIGNING_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
       - name: Verify 16 KB alignment
         if: matrix.arch == 'Arm64-v8a' || matrix.arch == 'X86_64' || matrix.arch == 'Universal'
         run: |
@@ -83,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [Arm64-v8a, Armeabi-v7a, X86_64, X86, Universal]
+        arch: [Arm64-v8a]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v4
@@ -101,19 +88,8 @@ jobs:
           echo "org.gradle.workers.max=2" >> gradle.properties
       - name: Enable offline mode
         run: echo "OFFLINE=true" >> ./app.properties
-      - name: Decode Keystore
-        id: decode_keystore
-        uses: timheuer/base64-to-file@v1
-        with:
-          fileName: 'release_key.jks'
-          fileDir: 'app/androidApp/'
-          encodedString: ${{ secrets.SIGNING_KEY }}
       - name: Build Release APK
         run: ./gradlew --build-cache :app:androidApp:assemble${{ matrix.arch }}WithMLRelease
-        env:
-          SIGNING_KEY_ALIAS: ${{ secrets.ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          SIGNING_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
       - name: Verify 16 KB alignment
         if: matrix.arch == 'Arm64-v8a' || matrix.arch == 'X86_64' || matrix.arch == 'Universal'
         run: |
@@ -131,7 +107,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [Arm64-v8a, Armeabi-v7a, X86_64, X86, Universal]
+        arch: [Arm64-v8a]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v4
@@ -147,20 +123,8 @@ jobs:
         run: |
           echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> gradle.properties
           echo "org.gradle.workers.max=2" >> gradle.properties
-      - name: Decode Keystore
-        id: decode_keystore
-        uses: timheuer/base64-to-file@v1
-        with:
-          fileName: 'release_key.jks'
-          fileDir: 'app/androidApp/'
-          encodedString: ${{ secrets.SIGNING_KEY }}
       - name: Build Release APK
-        run: test -n "$CARTO_BASEMAP_KEY" && ./gradlew --build-cache :app:androidApp:assemble${{ matrix.arch }}NoMLRelease
-        env:
-          SIGNING_KEY_ALIAS: ${{ secrets.ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          SIGNING_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
-          CARTO_BASEMAP_KEY: ${{ secrets.CARTO_BASEMAP_KEY }}
+        run: ./gradlew --build-cache :app:androidApp:assemble${{ matrix.arch }}NoMLRelease
       - name: Verify 16 KB alignment
         if: matrix.arch == 'Arm64-v8a' || matrix.arch == 'X86_64' || matrix.arch == 'Universal'
         run: |
@@ -219,12 +183,12 @@ jobs:
                 *-universal-release.apk) arch="Universal" ;;
                 *) arch="Unknown" ;;
               esac
-              echo "| ${arch} | [Click Here](${url}) | \`${hash}\` |"
+              echo "| ${arch} | [Click Here](${url}) \vert{} \`${hash}\` |"
             done
           }
 
-          TAG="${VERSION}-nightly"
-          CHANGELOG="${VERSION}-nightly-changelog.txt"
+          TAG="${VERSION}-release"
+          CHANGELOG="${VERSION}-changelog.txt"
 
           cat .github/VARIANT_INFO.md >> "$CHANGELOG"
           echo "" >> "$CHANGELOG"
@@ -236,22 +200,4 @@ jobs:
 
           echo "### Offline (NoML)" >> "$CHANGELOG"
           echo "" >> "$CHANGELOG"
-          generate_table "artifacts/offline" "$TAG" >> "$CHANGELOG"
-          echo "" >> "$CHANGELOG"
-
-          echo "### Offline (WithML)" >> "$CHANGELOG"
-          echo "" >> "$CHANGELOG"
-          generate_table "artifacts/withml" "$TAG" >> "$CHANGELOG"
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v3
-        with:
-          name: ${{ env.VERSION }} Nightly Release
-          body_path: ${{ env.VERSION }}-nightly-changelog.txt
-          prerelease: true
-          tag_name: ${{ env.VERSION }}-nightly
-          target_commitish: ${{ github.sha }}
-          files: |
-            artifacts/**/*.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          generate_table "artifacts/offline" "$TAG"
